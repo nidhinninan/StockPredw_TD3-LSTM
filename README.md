@@ -33,3 +33,19 @@ This is an experimental trading strategy written in Pine Script for the TradingV
 
 - **Jupyter Notebooks:** The `PatternAnalysis_Stock.ipynb` and `DeepRL_Stock_LSTM.ipynb` notebooks can be run in a Jupyter environment with the necessary Python libraries installed.
 - **Pine Script:** The `Custom_BreakoutRange.pine` script can be imported into the Pine Editor on TradingView to backtest the ORB strategy on historical data.
+
+## Results
+
+### Portfolio Value (TD3+LSTM)
+![Portfolio Value SPX500 LSTM](DeepRL/LSTM_100000_v1/portfolio_value_SPX500_lstm.png)
+
+### Pattern Analysis
+![Pattern Analysis SPX500 M15](PatternAnalysis_SPX500_M15.png)
+
+### ORB Strategy vs. Buy and Hold
+
+![ORB Strategy SPX500](plot_orb_strategy_SPX500.png)
+*ORB Strategy Performance*
+
+![Buy and Hold SPX500](plot_buy_and_hold_SPX500.png)
+*Buy and Hold Performance*
