@@ -1,0 +1,170 @@
+//@version=5
+strategy("Range Breakout Strategy_UCMO Research", overlay=true, initial_capital=1000000, default_qty_type=strategy.percent_of_equity, default_qty_value=10, pyramiding=2)
+
+// Add this with your other inputs
+riskRewardRatio = input.float(2.0, "Reward/Risk Ratio", minval=0.1, step=0.1)
+// Input time parameters
+startHour = input.int(9, "Start Hour", minval=0, maxval=23)
+startMinute = input.int(30, "Start Minute", minval=0, maxval=59)
+endHour = input.int(16, "End Hour", minval=0, maxval=23)  // Market close at 16:00 (4:00 PM)
+endMinute = input.int(0, "End Minute", minval=0, maxval=59)   // 00 minutes
+
+// Get current time
+currentHour = hour(time)
+currentMinute = minute(time)
+
+// Calculate time in minutes
+currentTimeInMinutes = currentHour * 60 + currentMinute
+startTimeInMinutes = startHour * 60 + startMinute
+endTimeInMinutes = endHour * 60 + endMinute
+
+// Variables for range calculation
+var float rangeHigh = na
+var float rangeLow = na
+var float rangeSize = na
+var bool inRangeBuilding = false
+var bool rangeEstablished = false
+
+// Variables to track daily trades
+var bool longTakenToday = false
+var bool shortTakenToday = false
+var bool longStoppedOut = false
+var bool shortStoppedOut = false
+
+// Define range building period (first 15 minutes)
+rangeBuildEndMinutes = startTimeInMinutes + 14
+inRangeBuildingPeriod = currentTimeInMinutes >= startTimeInMinutes and currentTimeInMinutes <= rangeBuildEndMinutes
+inTradingPeriod = currentTimeInMinutes > rangeBuildEndMinutes and currentTimeInMinutes <= endTimeInMinutes
+
+// Reset values at the start of each day
+if dayofmonth != dayofmonth[1] or (not inRangeBuildingPeriod[1] and inRangeBuildingPeriod)
+    rangeHigh      := high
+    rangeLow       := low
+    rangeEstablished := false
+    inRangeBuilding  := true
+    longTakenToday   := false
+    shortTakenToday  := false
+    longStoppedOut   := false
+    shortStoppedOut  := false
+
+    // Readout of open positions from previous day (if positions carried over)
+    // (strategy.position_size is the net position; positive means long, negative means short)
+    openLong  = strategy.position_size > 0 ? strategy.position_size : 0
+    openShort = strategy.position_size < 0 ? math.abs(strategy.position_size) : 0
+    label.new(bar_index, high, text = "Open Positions\nLong: " + str.tostring(openLong) + "\nShort: " + str.tostring(openShort), color = color.yellow, textcolor = color.black, style = label.style_label_down)
+
+// Update range values during building period
+if inRangeBuildingPeriod and inRangeBuilding
+    rangeHigh := math.max(rangeHigh, high)
+    rangeLow := math.min(rangeLow, low)
+
+// Establish range when building period ends
+if inRangeBuildingPeriod[1] and not inRangeBuildingPeriod
+    rangeSize := rangeHigh - rangeLow
+    
+    // Validate range size
+    minRangeSize = 0 //syminfo.mintick * 10  // Minimum acceptable range
+    maxRangeSize = 1e100 //ta.atr(14) * 2           // Maximum acceptable range based on ATR
+    
+    if rangeSize >= minRangeSize and rangeSize <= maxRangeSize
+        rangeEstablished := true
+        inRangeBuilding := false
+
+        // label.new(bar_index, high, text="Range Established\n" + "High: " + str.tostring(rangeHigh) + "\n" + "Low: " + str.tostring(rangeLow) + "\n" + "Size: " + str.tostring(rangeSize) + "\n" + "R/R Ratio: " + str.tostring(riskRewardRatio), color=color.blue, textcolor=color.white,style=label.style_label_down)
+
+    else
+        // Invalid range - reset and skip this day
+        rangeEstablished := false
+        inRangeBuilding := false
+
+        label.new(bar_index, high,text="Invalid Range Size\n" +"Size: " + str.tostring(rangeSize) + "\n" +"Min: " + str.tostring(minRangeSize) + "\n" +"Max: " + str.tostring(maxRangeSize),color=color.red,textcolor=color.white)
+
+// Add near the top with other inputs
+debugInfo = input.bool(false, "Show Debug Info")
+
+// Add after your trade entry sections
+if debugInfo and strategy.position_size != 0
+    label.new(bar_index, high + (5 * syminfo.mintick), text="Bar Range: " + str.tostring(high - low, format.mintick) + "\nTarget Distance: " + str.tostring(riskRewardRatio * rangeSize, format.mintick), color=color.purple, style=label.style_label_down, textcolor=color.white)
+
+// Initialize temporary flags for trades closed today in the current bar
+var bool newLongStoppedOut  = false
+var bool newShortStoppedOut = false
+
+// Calculate the number of trades closed in the current 15-min bar
+closedTradesDelta = strategy.closedtrades - strategy.closedtrades[1]
+
+// Only process if one or more trades closed in this bar
+if closedTradesDelta > 0
+    // Loop over the newly closed trades in this bar.
+    // (For example, if 2 trades closed, we iterate over both.)
+    for i = strategy.closedtrades - closedTradesDelta to strategy.closedtrades - 1
+        // Check if this trade was initiated today by comparing its entry day with the current day.
+        if dayofmonth(strategy.closedtrades.entry_time(i)) == dayofmonth(time)
+            // Get the exit price for this trade
+            exit_price = strategy.closedtrades.exit_price(i)
+            
+            // If the exit price is less than or equal to the rangeLow, then assume it was a long stop out.
+            if exit_price <= rangeLow
+                newLongStoppedOut := true
+            
+            // If the exit price is greater than or equal to the rangeHigh, then assume it was a short stop out.
+            if exit_price >= rangeHigh
+                newShortStoppedOut := true
+
+// Update the stop out flags based on any qualifying trades closed in the current bar.
+if newLongStoppedOut
+    longStoppedOut := true
+if newShortStoppedOut
+    shortStoppedOut := true
+
+// // Check if trades hit stop loss
+// if strategy.position_size == 0 and strategy.closedtrades > 0
+//     last_trade = strategy.closedtrades - 1
+//     exit_price = strategy.closedtrades.exit_price(last_trade)
+    
+//     // Check if long position was stopped out (price moved below stop)
+//     if exit_price <= rangeLow
+//         longStoppedOut := true
+    
+//     // Check if short position was stopped out (price moved above stop)
+//     if exit_price >= rangeHigh
+//         shortStoppedOut := true
+
+// Trading logic - After range is established and during trading period
+if rangeEstablished and inTradingPeriod
+    // Long Entry
+    longCondition = not longTakenToday or (shortStoppedOut and not longTakenToday)
+    if longCondition and close >= rangeHigh
+        strategy.entry("Long", strategy.long)
+        strategy.exit("Long Exit", "Long", stop=rangeLow, limit=rangeHigh + (riskRewardRatio * rangeSize))
+        longTakenToday := true
+        // label.new(bar_index, low, text="LONG ENTRY\nTP: " + str.tostring(rangeHigh + (riskRewardRatio * rangeSize)) + "\nSL: " + str.tostring(rangeLow), color=color.green, style=label.style_label_up)
+
+    // Short Entry
+    shortCondition = not shortTakenToday or (longStoppedOut and not shortTakenToday)
+    if shortCondition and close <= rangeLow
+        strategy.entry("Short", strategy.short)
+        strategy.exit("Short Exit", "Short", stop=rangeHigh, limit=rangeLow - (riskRewardRatio * rangeSize))
+        shortTakenToday := true
+        // label.new(bar_index, high, text="SHORT ENTRY\nTP: " + str.tostring(rangeLow - (riskRewardRatio * rangeSize)) + "\nSL: " + str.tostring(rangeHigh), color=color.red, style=label.style_label_down)
+
+// Create plotting condition
+var bool shouldPlot = false
+if currentTimeInMinutes > startTimeInMinutes + 15  // Only plot after range building period
+    shouldPlot := true
+
+// Plot lines for visualization with time offset
+plot(shouldPlot and rangeEstablished ? rangeHigh : na, color=color.blue, linewidth=2, style=plot.style_stepline, title="Range High")
+plot(shouldPlot and rangeEstablished ? rangeLow : na, color=color.blue, linewidth=2, style=plot.style_stepline, title="Range Low")
+plot(shouldPlot and rangeEstablished ? rangeHigh + rangeSize : na, color=color.green, linewidth=1, style=plot.style_stepline, title="Range High +1")
+plot(shouldPlot and rangeEstablished ? rangeHigh + (riskRewardRatio * rangeSize) : na, color=color.green, linewidth=1, style=plot.style_stepline, title="Range High +R/R")
+plot(shouldPlot and rangeEstablished ? rangeLow - rangeSize : na, color=color.red, linewidth=1, style=plot.style_stepline, title="Range Low -1")
+plot(shouldPlot and rangeEstablished ? rangeLow - (riskRewardRatio * rangeSize) : na, color=color.red, linewidth=1, style=plot.style_stepline, title="Range Low -R/R")
+// // Plot lines for visualization
+// plot(rangeEstablished ? rangeHigh : na, color=color.blue, linewidth=2, style=plot.style_line, title="Range High")
+// plot(rangeEstablished ? rangeLow : na, color=color.blue, linewidth=2, style=plot.style_line, title="Range Low")
+// plot(rangeEstablished ? rangeHigh + rangeSize : na, color=color.green, linewidth=1, style=plot.style_line, title="Range High +1")
+// plot(rangeEstablished ? rangeHigh + (2 * rangeSize) : na, color=color.green, linewidth=1, style=plot.style_line, title="Range High +2")
+// plot(rangeEstablished ? rangeLow - rangeSize : na, color=color.red, linewidth=1, style=plot.style_line, title="Range Low -1")
+// plot(rangeEstablished ? rangeLow - (2 * rangeSize) : na, color=color.red, linewidth=1, style=plot.style_line, title="Range Low -2")
+
