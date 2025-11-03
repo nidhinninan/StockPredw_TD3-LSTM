@@ -37,7 +37,7 @@ This is an experimental trading strategy written in Pine Script for the TradingV
 ## Results
 
 ### Portfolio Value (TD3+LSTM)
-![Portfolio Value SPX500 LSTM](DeepRL/LSTM_100000_v1/portfolio_value_SPX500_lstm.png)
+![Portfolio Value SPX500 LSTM](portfolio_value_SPX500_lstm.png)
 
 ### Pattern Analysis
 ![Pattern Analysis SPX500 M15](PatternAnalysis_SPX500_M15.png)
